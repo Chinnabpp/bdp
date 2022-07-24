@@ -60,7 +60,7 @@ $POS_ASSETID = 6
 #Position object for data read from the Holdings file
 Function New-Position {
   New-Object PSObject -Property @{
-      acctCd = ''
+      acctCd = '' # PORT_CODE
       assetId = ''
       qtyEod = ''
       currency = ''
@@ -77,11 +77,12 @@ Function New-Position {
       marketValueBaseCurrency = '' #for swaps
       legTypeCode = '' #for swaps
       odate = $odate
-      secMainType = ''
-      secshrtdesc = ''
-      prc_mlt = 1
-      cntrct_sz = 1
-      fx_to_base = 1
+      secMainType = '' #AST_CLS
+      secshrtdesc = '' #SEC_NAME
+      prc_mlt = 1 #PRC_MLT - it is default value and didn't load into position object please make that change 
+      cntrct_sz = 1 #CNTRCT_SZ - it is default value and didn't load into position object please make that change 
+      fx_to_base = 1 #FX_TO_BASE  - it is default value and didn't load into position object please make that change 
+      ls_indicator = '' # HOLDING_L, HOLDING_S (#basically this value will look like L 0r S) 
 
   }
 }
@@ -102,17 +103,23 @@ Function New-Security {
 #Polaris Object for data read from the Cash Neutral files
 Function New-Cash {
   New-Object PSObject -Property @{
-      amount = ''
+      amount = '' #PRIOR_DAY_NAV
   }
 }
 
 #Transaction Object for data read from the Transaction files
 Function New-Transaction {
   New-Object PSObject -Property @{
-      curr = ''
-      nettradecurr = ''
-      transdesccode = ''
-      code = ''
+      curr = '' # Currency will be same for both L & S Columns
+      nettradecurr = '' #PRICE
+      # Below is the sample output how we get values, 'curr' column will be same but nettradecurr will be there only for L or S in this case we have L so we have to read L, or else S'
+      transdesccode = '' # CASHDIV , CASHDIV
+      code = '' #(L, S will be coming from thius column, we have to join with CASHDIV_L or CASHDIV_S)
+      # Sample output 
+      # transdesccode   code   curr     nettradecurr
+      # CASHDIV          L     123.55     7546.2
+      # CASHDIV          S     123.55          
+
   }
 }
 
@@ -518,6 +525,7 @@ foreach($p in $distinctList)
     $position.legTypeCode = $p.Leg_Type_Code
     $position.secMainType = $p.Security_Main_Type
     $position.secshrtdesc = $p.SEC_NAME
+    $position.ls_indicator  = $p.Long_Short_Indicator
 
     #Total return swaps
     if(("CT.TOTRETSWAP") -contains $position.secType) {
