@@ -104,14 +104,12 @@ Function New-Security {
 Function New-Cash {
   New-Object PSObject -Property @{
       amount = '' #PRIOR_DAY_NAV
-      port_id = '' #this will be same for all the 3 objects
   }
 }
 
 #Transaction Object for data read from the Transaction files
 Function New-Transaction {
   New-Object PSObject -Property @{
-      port_id = '' #this will be same for all the 3 objects
       curr = '' # Currency will be same for both L & S Columns
       nettradecurr = '' #PRICE
       # Below is the sample output how we get values, 'curr' column will be same but nettradecurr will be there only for L or S in this case we have L so we have to read L, or else S'
@@ -608,7 +606,6 @@ foreach($c in $poldistinctList | Where-Object {($_.advisor_id -eq "AAVT") -And (
 
 $cash = New-Cash
            $cash.amount = $c.amount
-           $cash.port_id = $c.advisor_id
            $polObjects += $cash
 
 }
@@ -622,13 +619,87 @@ $curr = ($t.Corporate_Action_Market_Value_Base_Currency | Measure-Object -Sum).S
 
 foreach ($t in $transdistinctList | Where-Object {($_.Advisor_ID -eq "AAVT" -and $_.Transaction_Type_Description_Code -eq "CASHDIV")}) {
    $transaction = New-Transaction
-   
-   $transaction.transport_id = $t.Advisor_ID
+           
    $transaction.nettradecurr = $t.Net_Trade_Amount__Base_Currency
    $transaction.transdesccode = $t.Transaction_Type_Description_Code
    $transaction.code = $t.Long_Short_Indicator
    $transaction.curr = $curr
    $transObjects += $transaction 
+}
+
+#$txn = $fundlist | Where-Object {($_.NeoXamID).contains ("AAVT")}
+ $transrow = $transObjects.Get_Item(0)
+ $polrow = $polObjects.Get_Item(0)
+ 
+
+# process for calculations
+foreach($p in $distinctList)
+{
+    #Set up position
+    $position = New-Position
+
+    $position.secMainType = $p.Security_Main_Type
+    $position.secshrtdesc = $p.SEC_NAME
+    $position.ls_indicator  = $p.Long_Short_Indicator
+    $position.prc_mlt = 1
+    $position.cntrct_sz = 1
+    $position.fx_to_base = 1
+
+    
+    #$position.PRICE = $txn.nettradecurr
+    #$position.PRICE = $transrow[$nettradecurr]
+
+    #$polaris = $fundlist | Where-Object {($_.NeoXamID).contains($p.advisor_id)}
+    #$position.PRIOR_DAY_NAV = polaris.amount; $polrow[$amount]
+
+    # conditions added
+    if(($position.secMainType -eq 'EQ') -or ($position.secMainType -eq 'MM' -and $position.secshrtdesc -eq 'SHORT PROCEEDS')) {
+        # $position.ls_indicator - if L then set L or set S
+        if ($position.ls_indicator -eq 'L') {
+            $position.LONG_IBOR_QTY = $position.ls_indicator
+        }
+        
+        if ($position.ls_indicator -eq 'S') {
+            $position.SHORT_IBOR_QTY = $position.ls_indicator
+        }
+    }
+
+    if($position.secMainType -eq 'EQ') {
+        # $txn.code can be L,S
+        if ($txn.code -eq 'L') {
+            $position.LONG = ([double]$position.LONG_IBOR_QTY * [double]$position.prc_mlt * [double]$transrow[$nettradecurr] * [double]$position.fx_to_base * [double]$position.cntrct_sz) + $txn.transdesccode+ "_" +$txn.code
+        }
+
+        if ($txn.code -eq 'S') {
+            $position.SHORT = ([double]$position.SHORT_IBOR_QTY * [double]$position.prc_mlt * [double]$transrow[$nettradecurr] * [double]$position.fx_to_base * [double]$position.cntrct_sz) + $txn.transdesccode+ "_" +$txn.code
+        }
+    }
+
+    if($position.secshrtdesc -eq 'SHORT PROCEEDS') {
+        $position.SHORT_PROCEEDS = [System.Math]::Abs($position.LONG_IBOR_QTY) + [System.Math]::Abs($position.SHORT_IBOR_QTY)
+    }
+
+    $position.AVG_PRIOR_DAY_NAV = ($polrow[$amount] | Measure-Object -Average).Average
+
+    $position.SUM_LONG = 0
+    if ( $null -ne $position.LONG ) {
+        $position.SUM_LONG = ($position.LONG | Measure-Object -Sum).Sum
+    }
+    
+    $position.SUM_SHORT = 0
+    if ( $null -ne $position.SHORT ) {
+        $position.SUM_SHORT = ($position.SHORT | Measure-Object -Sum).Sum
+    }
+    
+    $position.SUM_SHORT_PROCEEDS = 0
+    if( $null -ne $position.SHORT_PROCEEDS ) {
+        $position.SUM_SHORT_PROCEEDS = ($position.SHORT_PROCEEDS | Measure-Object -Sum).Sum
+    }
+    
+    $position.PRELIMINARY_CASH = position.AVG_PRIOR_DAY_NAV - $position.SUM_LONG + $position.SUM_SHORT - $position.SUM_SHORT_PROCEEDS
+
+    #Add new Position object to list
+    $positionObjects += $position
 }
 
 # Perform operations on IDX FUT
