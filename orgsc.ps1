@@ -104,12 +104,14 @@ Function New-Security {
 Function New-Cash {
   New-Object PSObject -Property @{
       amount = '' #PRIOR_DAY_NAV
+      port_id = '' #this will be same for all the 3 objects
   }
 }
 
 #Transaction Object for data read from the Transaction files
 Function New-Transaction {
   New-Object PSObject -Property @{
+      port_id = '' #this will be same for all the 3 objects
       curr = '' # Currency will be same for both L & S Columns
       nettradecurr = '' #PRICE
       # Below is the sample output how we get values, 'curr' column will be same but nettradecurr will be there only for L or S in this case we have L so we have to read L, or else S'
@@ -606,6 +608,7 @@ foreach($c in $poldistinctList | Where-Object {($_.advisor_id -eq "AAVT") -And (
 
 $cash = New-Cash
            $cash.amount = $c.amount
+           $cash.port_id = $c.advisor_id
            $polObjects += $cash
 
 }
@@ -619,7 +622,8 @@ $curr = ($t.Corporate_Action_Market_Value_Base_Currency | Measure-Object -Sum).S
 
 foreach ($t in $transdistinctList | Where-Object {($_.Advisor_ID -eq "AAVT" -and $_.Transaction_Type_Description_Code -eq "CASHDIV")}) {
    $transaction = New-Transaction
-           
+   
+   $transaction.transport_id = $t.Advisor_ID
    $transaction.nettradecurr = $t.Net_Trade_Amount__Base_Currency
    $transaction.transdesccode = $t.Transaction_Type_Description_Code
    $transaction.code = $t.Long_Short_Indicator
