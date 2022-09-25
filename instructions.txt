@@ -1,0 +1,31 @@
+1) We have a upsream team where they will send cloudwatch event which will looks like this 
+{
+  "detail-type": ["vanguard.gifs.investmentproduct.valuation.prices.data-Correction"],
+  "detail": {
+    "content": {
+      "event_class": ["data-Correction"],
+      "payload": {
+        "udf": {
+          "data": {
+            "priceTypeCode": ["NAV", "MKTP"],
+            "eventType": ["INSERT", "UPDATE"]
+          }
+        }
+      }
+    }
+  }
+}
+
+2) we have a cloudwatch rule which will look for the detail-type and event_class in the above event, if the event has this we have a sns topic subscribed and it will call lambda
+
+3) when lambda is called we have modify lambda.py script where lambda is sitting, there is elif in line 217 where it's calling glue job 
+   we have to add another elif where we have to check priceTypeCode = "NAV" (from above event)
+    where it will pass glue_job_args as "--skipTna": tna_flag , "--skipNav": nav_flag (we have to add this), glus_job_name will be same like line 219
+
+4) when lambda calls glue job we have to add our condition after line 1471 in glue.py 
+   when lambda calls this glue job it to run only price_type_codes="NAV" (This is under object FundPricesParams)
+   we can write a sepecrate logic where it will execute only this peice of logic (if we are calling from that lambda and that arguments, add another argument if needed)
+   That code will call API and it will get effective_date (current date), price_type_code (nav), time_period_code(d), port_ids that are mentioned under  FundPricesParams object we can store them in array of arrays to get all port_id's
+   so DB will be update for those port id's only
+
+*** please go thorugh the code and you will get to know what is it doing.
