@@ -1,0 +1,55 @@
+{
+   "version":"0",
+   "id":"49af06f7-8a1f-a338-569f-0597a1febf29",
+   "source":"vanguard.gifs.app.fvw",
+   "detail-type":"vanguard.gifs.investmentproduct.valuation.prices.data-update",
+   "account":"334061574913",
+   "time":"2022-03-31T05:29:36Z",
+   "region":"us-east-1",
+   "resources":[],
+   "detail":{
+      "content":{
+         "msg_version":"2.0",
+         "msg_id":"f9a5a040-9a47-11ec-b909-0242ac120002",
+         "msg_source":"vanguard.gifs.app.fvw",
+         "msg_type":"vanguard.gifs.investmentproduct.valuation.prices.data-update",
+         "event_class":"data-update",
+         "timestamp":"2022-03-31T05:29:36Z",
+         "payload_id":"c72c0828-9f3d-4162-92b1-c7383b21470d",
+         "payload_part":1,
+         "payload_parts":1,
+         "payload":{
+            "investment_domain":{
+               "data_category":"Product Valuation",
+               "data_category_interval":"Daily",
+               "data_set":"Vanguard Funds",
+               "data_source_provider":"SSB",
+               "data_sourcing_group":"Investment Product"
+            },
+            "udf":{
+               "data":[
+                  {
+                     "portId":"0002",
+                     "effectiveDate":"2022-04-02",
+                     "priceTypeCode":"NAV",
+                     "timePeriodCode":"D",
+                     "distributionGroupCodes":[
+                        "G010"
+                     ]
+                  },
+                  {
+                     "portId":"0003",
+                     "effectiveDate":"2022-04-02",
+                     "priceTypeCode":"NAV",
+                     "timePeriodCode":"D",
+                     "distributionGroupCodes":[
+                        "G010"
+                     ]
+                  }
+               ]
+            }
+         }
+      },
+      "content_csum":"2f92e0ab81cebdc71f915167ef6b6e42f7fb34cc25715c79961524c331d3a9f9"
+   }
+}
