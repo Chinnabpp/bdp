@@ -67,7 +67,12 @@ def create_new_log(
     #glue_job_args = json.dumps(glue_job_args, indent=4)  # converting dict to json
     
     if "--glueJobData" in glue_job_args:
-        glue_job_args["--glueJobData"] = json.loads(glue_job_args["--glueJobData"].replace("'",'"'))[0]
+        value = glue_job_args["--glueJobData"]
+        if type(value) == str:
+            value = json.loads(value.replace("'",'"'))
+        if type(value) == list:
+            value = value[0]
+        glue_job_args["--glueJobData"] = value
     glue_job_args = json.dumps(glue_job_args, indent=4)
     trigger_key = json.dumps(
         trigger_key
