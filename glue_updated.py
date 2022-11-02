@@ -121,6 +121,7 @@ file_key = None
 
 def get_file_key():
     """generates a file key based on date + time
+
     sets once and returns the same key in a single run
     """
     global file_key
@@ -174,7 +175,6 @@ class SysArgs(AliasModel):
     valuation_type_codes: str = Field(alias="valuationTypeCodes")
     table_name: str = Field(alias="tableName")
     skip_tna: Optional[str] = Field(alias="skipTna")
-    skip_nav: Optional[str] = Field(alias="skipNav")
     clear_all_exceptions: Optional[str] = Field(alias="clearAllExceptions")
     scopes: str
 
@@ -622,7 +622,6 @@ def parse_sys_args():
             "scopes",
             "skipTna",
             "clearAllExceptions",
-            "skipNav",
         ],
     )
     try:
@@ -830,7 +829,7 @@ def audit_fund_data(query, aurora_details):
 
 
 def run_for(date_str: Optional[str], skip_tna: str):
-    utc_curr_date = datetime.now().date()
+    utc_curr_date = datetime.now()
     est_time_delta = timedelta(hours=-4)
     curr_date = utc_curr_date + est_time_delta
     logger.info("### Current Date is : {0}".format(curr_date))
@@ -877,7 +876,7 @@ def run_for(date_str: Optional[str], skip_tna: str):
                 + "'"
             )
             logger.info(
-                "### effective_date_for_exception_daily: {0}".format(
+                "### 11 AM Job: effective_date_for_exception_daily: {0}".format(
                     effective_date_for_exception_daily
                 )
             )
@@ -926,6 +925,7 @@ def run_for(date_str: Optional[str], skip_tna: str):
 def transform(tna_nav_aum_df, outstanding_shares_df):
     """Group fund valuation records so there is one row per table constraint.
          Then join outstanding shares df, so there are outstandings shares for each currency.
+
     :param tna_nav_aum_df: DF containing rows of all tna, nav, aum records
     :param outstanding_shares_df: DF containing rows of all outstanding shares records
     :return: returns normalized df with one record per db constraints
@@ -962,6 +962,7 @@ def transform(tna_nav_aum_df, outstanding_shares_df):
 
 def run_primary_data_quality_checks(fund_valuation_df):
     """Runs data quality checks on normalized fund valuation df to avoid DB insert errors
+
     :param fund_valuation_df: normalized fund valuation df
     :return: Tuple of fund_valuation_df and fund_exception_df
     """
@@ -1182,6 +1183,7 @@ def run_data_quality_checks(
 
 def load_exceptions(fund_valuation_exception_df, aurora_details):
     """Loads exceptions into the fund_valuation_exceptions table in the DB
+
     :param fund_valuation_exception_df: df generated from data_quality_checks
     :param aurora_details: MAdb connection details
     """
@@ -1261,215 +1263,80 @@ if __name__ == "__main__":
         effective_date_for_exception_monthly,
         sys_args.clear_all_exceptions,
     )
-    if sys_args.skip_nav == "N"
-        for date_str, time_period_code in periods:
-            # Creating params for USD advisor ports
-            logger.info(
-                "### run for date: {0} and time period code: {1}".format(
-                    date_str, time_period_code
+    for date_str, time_period_code in periods:
+        # Creating params for USD advisor ports
+        logger.info(
+            "### run for date: {0} and time period code: {1}".format(
+                date_str, time_period_code
+            )
+        )
+        for i in range(0, len(advisor_ports), split_offset):
+            params.append(
+                AdvisorValuationParams(
+                    effective_date=date_str,
+                    time_period_code=time_period_code,
+                    advisor_ids=advisor_ports[i : i + split_offset],
+                    valuation_type_codes="TNA,NAV",
+                    currency_code="USD",
                 )
             )
-            for i in range(0, len(advisor_ports), split_offset):
-                params.append(
-                    AdvisorValuationParams(
-                        effective_date=date_str,
-                        time_period_code=time_period_code,
-                        advisor_ids=advisor_ports[i : i + split_offset],
-                        valuation_type_codes="TNA,NAV",
-                        currency_code="USD",
-                    )
-                )
 
-                outstanding_shares_params.append(
-                    AdvisorValuationParams(
-                        effective_date=date_str,
-                        time_period_code=time_period_code,
-                        advisor_ids=advisor_ports[i : i + split_offset],
-                        valuation_type_codes="OUTSTANDING_SHARES",
-                    )
+            outstanding_shares_params.append(
+                AdvisorValuationParams(
+                    effective_date=date_str,
+                    time_period_code=time_period_code,
+                    advisor_ids=advisor_ports[i : i + split_offset],
+                    valuation_type_codes="OUTSTANDING_SHARES",
                 )
+            )
 
-            # Creating params for non USD advisor ports
-            for i in range(0, len(non_usd_advisor_ports), split_offset):
+        # Creating params for non USD advisor ports
+        for i in range(0, len(non_usd_advisor_ports), split_offset):
+            params.append(
+                AdvisorValuationParams(
+                    effective_date=date_str,
+                    time_period_code=time_period_code,
+                    advisor_ids=non_usd_advisor_ports[i : i + split_offset],
+                    valuation_type_codes="TNA,NAV",
+                )
+            )
+
+            if sys_args.skip_tna == "N":
+                logger.info(
+                    "skip tna flag is N, loading USD TNA for Non USD base currency advisor funds..."
+                )
                 params.append(
                     AdvisorValuationParams(
                         effective_date=date_str,
                         time_period_code=time_period_code,
                         advisor_ids=non_usd_advisor_ports[i : i + split_offset],
-                        valuation_type_codes="TNA,NAV",
-                    )
-                )
-
-                if sys_args.skip_tna == "N":
-                    logger.info(
-                        "skip tna flag is N, loading USD TNA for Non USD base currency advisor funds..."
-                    )
-                    params.append(
-                        AdvisorValuationParams(
-                            effective_date=date_str,
-                            time_period_code=time_period_code,
-                            advisor_ids=non_usd_advisor_ports[i : i + split_offset],
-                            valuation_type_codes="TNA",
-                            currency_code="USD",
-                        )
-                    )
-
-                outstanding_shares_params.append(
-                    AdvisorValuationParams(
-                        effective_date=date_str,
-                        time_period_code=time_period_code,
-                        advisor_ids=non_usd_advisor_ports[i : i + split_offset],
-                        valuation_type_codes="OUTSTANDING_SHARES",
-                    )
-                )
-
-            # Creating params for USD fund ports
-            for i in range(0, len(fund_ports), split_offset):
-                params.append(
-                    FundManagedAssetsParams(
-                        effective_date=date_str,
-                        time_period_code=time_period_code,
-                        asset_type_codes="AUM,TNA",
-                        identifier_type="PORT",
-                        port_ids=fund_ports[i : i + split_offset],
+                        valuation_type_codes="TNA",
                         currency_code="USD",
                     )
                 )
 
-                params.append(
-                    FundPricesParams(
-                        effective_date=date_str,
-                        time_period_code=time_period_code,
-                        price_type_codes="NAV",
-                        port_ids=fund_ports[i : i + split_offset],
-                    )
+            outstanding_shares_params.append(
+                AdvisorValuationParams(
+                    effective_date=date_str,
+                    time_period_code=time_period_code,
+                    advisor_ids=non_usd_advisor_ports[i : i + split_offset],
+                    valuation_type_codes="OUTSTANDING_SHARES",
                 )
+            )
 
-                outstanding_shares_params.append(
-                    FundOustandingSharesParams(
-                        effective_date=date_str,
-                        time_period_code=time_period_code,
-                        port_ids=fund_ports[i : i + split_offset],
-                    )
-                )
-
-            # Creating params for non USD fund ports
-            for i in range(0, len(non_usd_fund_ports), split_offset):
-                params.append(
-                    FundManagedAssetsParams(
-                        effective_date=date_str,
-                        time_period_code=time_period_code,
-                        asset_type_codes="AUM,TNA",
-                        identifier_type="PORT",
-                        port_ids=non_usd_fund_ports[i : i + split_offset],
-                    )
-                )
-
-                params.append(
-                    FundPricesParams(
-                        effective_date=date_str,
-                        time_period_code=time_period_code,
-                        price_type_codes="NAV",
-                        port_ids=non_usd_fund_ports[i : i + split_offset],
-                    )
-                )
-                if sys_args.skip_tna == "N":
-                    logger.info(
-                        "skip tna flag is N, loading USD TNA for Non USD base currency all share class funds..."
-                    )
-                    params.append(
-                        FundManagedAssetsParams(
-                            effective_date=date_str,
-                            time_period_code=time_period_code,
-                            asset_type_codes="TNA",
-                            identifier_type="PORT",
-                            currency_code="USD",
-                            port_ids=non_usd_fund_ports[i : i + split_offset],
-                        )
-                    )
-
-                outstanding_shares_params.append(
-                    FundOustandingSharesParams(
-                        effective_date=date_str,
-                        time_period_code=time_period_code,
-                        port_ids=non_usd_fund_ports[i : i + split_offset],
-                    )
-                )
-
-            # Gathering params for Non USD Share class ports
-            for i in range(0, len(share_class_ports), split_offset):
-                params.append(
-                    ShareClassParams(
-                        effective_date=date_str,
-                        time_period_code=time_period_code,
-                        asset_type_codes="AUM,TNA",
-                        identifier_type="PORT",
-                        port_ids=share_class_ports[i : i + split_offset],
-                        currency_code="USD",
-                    )
-                )
-
-                params.append(
-                    FundPricesParams(
-                        effective_date=date_str,
-                        time_period_code=time_period_code,
-                        price_type_codes="NAV",
-                        port_ids=share_class_ports[i : i + split_offset],
-                    )
-                )
-
-                outstanding_shares_params.append(
-                    FundOustandingSharesParams(
-                        effective_date=date_str,
-                        time_period_code=time_period_code,
-                        port_ids=share_class_ports[i : i + split_offset],
-                    )
-                )
-
-            # splitting Share-Class Params
-            for i in range(0, len(non_usd_share_class_ports), split_offset):
-                params.append(
-                    ShareClassParams(
-                        effective_date=date_str,
-                        time_period_code=time_period_code,
-                        asset_type_codes="AUM,TNA",
-                        identifier_type="PORT",
-                        port_ids=non_usd_share_class_ports[i : i + split_offset],
-                    )
-                )
-
-                params.append(
-                    FundPricesParams(
-                        effective_date=date_str,
-                        time_period_code=time_period_code,
-                        price_type_codes="NAV",
-                        port_ids=non_usd_share_class_ports[i : i + split_offset],
-                    )
-                )
-                if sys_args.skip_tna == "N":
-                    logger.info(
-                        "skip tna flag is N, loading USD TNA for Non USD base currency share class funds..."
-                    )
-                    params.append(
-                        ShareClassParams(
-                            effective_date=date_str,
-                            time_period_code=time_period_code,
-                            asset_type_codes="TNA",
-                            identifier_type="PORT",
-                            port_ids=share_class_ports[i : i + split_offset],
-                            currency_code="USD",
-                        )
-                    )
-
-                outstanding_shares_params.append(
-                    FundOustandingSharesParams(
-                        effective_date=date_str,
-                        time_period_code=time_period_code,
-                        port_ids=non_usd_share_class_ports[i : i + split_offset],
-                    )
-                )
-    if sys_args.skip_nav == "Y":
+        # Creating params for USD fund ports
         for i in range(0, len(fund_ports), split_offset):
+            params.append(
+                FundManagedAssetsParams(
+                    effective_date=date_str,
+                    time_period_code=time_period_code,
+                    asset_type_codes="AUM,TNA",
+                    identifier_type="PORT",
+                    port_ids=fund_ports[i : i + split_offset],
+                    currency_code="USD",
+                )
+            )
+
             params.append(
                 FundPricesParams(
                     effective_date=date_str,
@@ -1479,6 +1346,129 @@ if __name__ == "__main__":
                 )
             )
 
+            outstanding_shares_params.append(
+                FundOustandingSharesParams(
+                    effective_date=date_str,
+                    time_period_code=time_period_code,
+                    port_ids=fund_ports[i : i + split_offset],
+                )
+            )
+
+        # Creating params for non USD fund ports
+        for i in range(0, len(non_usd_fund_ports), split_offset):
+            params.append(
+                FundManagedAssetsParams(
+                    effective_date=date_str,
+                    time_period_code=time_period_code,
+                    asset_type_codes="AUM,TNA",
+                    identifier_type="PORT",
+                    port_ids=non_usd_fund_ports[i : i + split_offset],
+                )
+            )
+
+            params.append(
+                FundPricesParams(
+                    effective_date=date_str,
+                    time_period_code=time_period_code,
+                    price_type_codes="NAV",
+                    port_ids=non_usd_fund_ports[i : i + split_offset],
+                )
+            )
+            if sys_args.skip_tna == "N":
+                logger.info(
+                    "skip tna flag is N, loading USD TNA for Non USD base currency all share class funds..."
+                )
+                params.append(
+                    FundManagedAssetsParams(
+                        effective_date=date_str,
+                        time_period_code=time_period_code,
+                        asset_type_codes="TNA",
+                        identifier_type="PORT",
+                        currency_code="USD",
+                        port_ids=non_usd_fund_ports[i : i + split_offset],
+                    )
+                )
+
+            outstanding_shares_params.append(
+                FundOustandingSharesParams(
+                    effective_date=date_str,
+                    time_period_code=time_period_code,
+                    port_ids=non_usd_fund_ports[i : i + split_offset],
+                )
+            )
+
+        # Gathering params for Non USD Share class ports
+        for i in range(0, len(share_class_ports), split_offset):
+            params.append(
+                ShareClassParams(
+                    effective_date=date_str,
+                    time_period_code=time_period_code,
+                    asset_type_codes="AUM,TNA",
+                    identifier_type="PORT",
+                    port_ids=share_class_ports[i : i + split_offset],
+                    currency_code="USD",
+                )
+            )
+
+            params.append(
+                FundPricesParams(
+                    effective_date=date_str,
+                    time_period_code=time_period_code,
+                    price_type_codes="NAV",
+                    port_ids=share_class_ports[i : i + split_offset],
+                )
+            )
+
+            outstanding_shares_params.append(
+                FundOustandingSharesParams(
+                    effective_date=date_str,
+                    time_period_code=time_period_code,
+                    port_ids=share_class_ports[i : i + split_offset],
+                )
+            )
+
+        # splitting Share-Class Params
+        for i in range(0, len(non_usd_share_class_ports), split_offset):
+            params.append(
+                ShareClassParams(
+                    effective_date=date_str,
+                    time_period_code=time_period_code,
+                    asset_type_codes="AUM,TNA",
+                    identifier_type="PORT",
+                    port_ids=non_usd_share_class_ports[i : i + split_offset],
+                )
+            )
+
+            params.append(
+                FundPricesParams(
+                    effective_date=date_str,
+                    time_period_code=time_period_code,
+                    price_type_codes="NAV",
+                    port_ids=non_usd_share_class_ports[i : i + split_offset],
+                )
+            )
+            if sys_args.skip_tna == "N":
+                logger.info(
+                    "skip tna flag is N, loading USD TNA for Non USD base currency share class funds..."
+                )
+                params.append(
+                    ShareClassParams(
+                        effective_date=date_str,
+                        time_period_code=time_period_code,
+                        asset_type_codes="TNA",
+                        identifier_type="PORT",
+                        port_ids=share_class_ports[i : i + split_offset],
+                        currency_code="USD",
+                    )
+                )
+
+            outstanding_shares_params.append(
+                FundOustandingSharesParams(
+                    effective_date=date_str,
+                    time_period_code=time_period_code,
+                    port_ids=non_usd_share_class_ports[i : i + split_offset],
+                )
+            )
 
     # to hold the complete data fetched from all APIs
     db_records = []
