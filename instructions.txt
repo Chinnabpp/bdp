@@ -4,7 +4,7 @@ here we are updating postgres sql DB table (glue_job_args - Clomun is accepting 
 Query looks like this: 
 
 INSERT INTO etl_process_audit ("trigger_key", "lambda_name", "glue_job_args", "data_component", "data_type", "is_lambda_success", message, "lambda_timestamp", "target_glue_job")
-                    VALUES ('xxx', 'MADBGenericTrigger', '{'--skipTna': 'Y', '--skipNav': 'N', '--glueJobData': "[{"'portId": "0965', 'effectiveDate': '2022-10-28', 'priceTypeCode': 'NAV', 'timePeriodCode': 'D', 'distributionGroupCodes': 'G010|G230', 'eventType': 'UPDATE'}]"}'
+                    VALUES ('xxx', 'MADBGenericTrigger', '{'--skipTna': 'Y', '--skipNav': 'N', '--glueJobData': "[{'portId": "0965', 'effectiveDate': '2022-10-28', 'priceTypeCode': 'NAV', 'timePeriodCode': 'D', 'distributionGroupCodes': 'G010|G230', 'eventType': 'UPDATE'}]"}'
 , 'FUND_VALUATION', 'FUND', 'true', 'submitted', '2021-10-13 19:00:26.017547', 'maa-fund-valuation')
 
 Error: 
