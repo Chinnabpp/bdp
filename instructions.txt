@@ -1,26 +1,2 @@
-Basically this lambda is able execute code in line 335 and coming to trigger_glue_job method inside that it's calling glue job with args and when create_new_log method called it's executing a query to update DB and there we are getting error  
-
-1) When executing query in line 77 it's throwing error saying invalid syntax
-here we are updating postgres sql DB table (glue_job_args - Clomun is accepting json)
-
-Under glue_job_args we have glueJobData which is list of arrays and it's throwing error, i modified the query and you can see the working query below, so we have to add a condition to make double quotes inside that json, under gluejobdata we have to remove [] and make sigle quotes as double quotes and pass that args
-
-Query looks like this: 
-
-INSERT INTO etl_process_audit ("trigger_key", "lambda_name", "glue_job_args", "data_component", "data_type", "is_lambda_success", message, "lambda_timestamp", "target_glue_job")
-                    VALUES ('xxx', 'MADBGenericTrigger', '{'--skipTna': 'Y', '--skipNav': 'N', '--glueJobData': "[{'portId": "0965', 'effectiveDate': '2022-10-28', 'priceTypeCode': 'NAV', 'timePeriodCode': 'D', 'distributionGroupCodes': 'G010|G230', 'eventType': 'UPDATE'}]"}'
-, 'FUND_VALUATION', 'FUND', 'true', 'submitted', '2021-10-13 19:00:26.017547', 'maa-fund-valuation')
-
-Error: 
-2022-11-01 13:56.34 [error    ] Failed to trigger glue job     arguments={'--skipTna': 'Y', '--skipNav': 'N', '--glueJobData': "[{'portId': '0965', 'effectiveDate': '2022-10-28', 'priceTypeCode': 'NAV', 'timePeriodCode': 'D', 'distributionGroupCodes': 'G010|G230', 'eventType': 'UPDATE'}]"} e=SyntaxError('syntax error at or near "portId"\nLINE 5:     "--glueJobData": "[{\'portId\': \'0965\', \'effectiveDate\': \'...\n                                 ^\n') job_name=maa-fund-valuation state=FAILED
-
-
-This query worked when i execute manually on DB"
-
-INSERT INTO etl_process_audit ("trigger_key", "lambda_name", "glue_job_args", "data_component", "data_type", "is_lambda_success", message, "lambda_timestamp", "target_glue_job")
-                    VALUES ('xxx', 'MADBGenericTrigger', '{"--skipTna": "Y", "--skipNav": "N", "--glueJobData": {"portId": "0965", "effectiveDate": "2022-10-28", "priceTypeCode": "NAV", "timePeriodCode": "D", "distributionGroupCodes": "G010|G230", "eventType": "UPDATE"}}'
-, 'FUND_VALUATION', 'FUND', 'true', 'submitted', '2021-10-13 19:00:26.017547', 'maa-fund-valuation')
-
-
-In code we have to make a condition like if glue_job_args has --glueJobdata then we have to make glueJobData looks like this or a condition like line 335 in lambda, which ever work or any new condition related to it
-'{"--skipTna": "Y", "--skipNav": "N", "--glueJobData": {"portId": "0965", "effectiveDate": "2022-10-28", "priceTypeCode": "NAV", "timePeriodCode": "D", "distributionGroupCodes": "G010|G230", "eventType": "UPDATE"}}'
+1) Please write test cases for this glue job pythin script.
+2) i have attached sample data file that this job uses and sample of other glue job python script and test script aswell
