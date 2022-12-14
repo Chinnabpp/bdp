@@ -1,2 +1,5 @@
 1) Please write test cases for this glue job pythin script.
 2) i have attached sample data file that this job uses and sample of other glue job python script and test script aswell
+3) file name starts with sample are from existing glue jobs where test cases are already there.
+
+FYI: sample data is in data.csv file that you can use 
