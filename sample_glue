@@ -1,0 +1,586 @@
+import logging
+import math
+import os
+import sys
+from datetime import datetime
+
+import boto3
+import pg8000
+from pg8000.dbapi import Connection
+from pyspark.context import SparkContext
+from pyspark.sql import DataFrame, Window
+import pyspark.sql.functions as F
+
+from awsglue.context import GlueContext
+from awsglue.dynamicframe import DynamicFrame
+from awsglue.utils import getResolvedOptions
+
+from utilities import retrieve_aurora_details, return_audit_query
+
+
+def get_show_string(df: DataFrame, n=100, truncate=False, vertical=True):
+    """
+    Converts PySparks show into a string for error logging
+
+    :param df: DataFrame, DataFrame of records to show
+    :param n: int, Number of records to show
+    :param truncate: bool, Truncate column names
+    :param vertical: bool, Format of string
+    :return: String: The records of the dataframe in a string
+    """
+    return df._jdf.showString(n, int(truncate), vertical)
+
+
+def read_sql_file_to_var(sql_file: str, staging_identifier: str = None):
+    """
+    Reads the specified sql file into a variable so it can be executed by spark
+
+    :param sql_file: str, SQL file name
+    :param staging_identifier: str, Unique Identifier to add to query
+    :return: query: str, Query in a string formatted with staging identifier
+    """
+
+    if env == "local":
+        sql_file_path = os.path.join(os.path.dirname(__file__), f"../sql/{sql_file}")
+    else:
+        sql_file_path = f"s3://{MADB_SCRIPT_LOCATION}/{sql_file}"
+
+    logger.info("Reading SQL File: %s", sql_file_path)
+
+    query_file = sc.textFile(sql_file_path)
+    query_file_content_list = query_file.collect()
+    query = " ".join(i for i in query_file_content_list)
+
+    if staging_identifier:
+        query = query.format(staging_identifier)
+
+    return query
+
+
+def delete_from_staging(staging_table: str, staging_identifier: str) -> None:
+    """
+    Deletes from the specified staging table using a unique identifier
+
+    :param staging_table: str, Staging table to delete from
+    :param staging_identifier: str, Staging identifier used to identify what to delete
+    :return: None
+    """
+    cursor = pg.cursor()
+    delete_query = "DELETE FROM {0} WHERE file_key = '{1}'".format(
+        staging_table, staging_identifier
+    )
+    logger.info("Running clear from staging query: %s", delete_query)
+    cursor.execute(delete_query)
+    pg.commit()
+
+
+def return_pg_connection() -> Connection:
+    """
+    Connect to MAdb using pg8000
+
+    :return: Returns pg8000 connection
+    """
+    conn = pg8000.dbapi.connect(
+        user=aurora_details["user"],
+        password=aurora_details["pass"],
+        host=aurora_details["host"],
+        database=aurora_details["database"],
+    )
+    return conn
+
+
+def write_to_aurora(db_table: str, df: DataFrame) -> DynamicFrame:
+    """
+    Write a DataFrame to a table in MAdb
+
+    :param db_table: str, Table to write to
+    :param df: DataFrame, DataFrame to write to the table
+    :return: db_dyf: DynamicFrame,
+        DynamicFrame that gets returned by the glueContext.write_dynamic_frame.from_options method
+    """
+    logger.info("Creating Glue DynamicFrame from DataFrame")
+
+    dyf = DynamicFrame.fromDF(df, glueContext, "dyf")
+
+    logger.info("Writing to Aurora DB")
+
+    db_dyf = glueContext.write_dynamic_frame.from_options(
+        frame=dyf,
+        connection_type="postgresql",
+        connection_options={
+            "url": "jdbc:postgresql://{0}:5432/{1}".format(
+                aurora_details["host"], aurora_details["database"]
+            ),
+            "user": aurora_details["user"],
+            "password": aurora_details["pass"],
+            "dbtable": db_table,
+        },
+        format=None,
+        format_options={},
+    )
+
+    return db_dyf
+
+
+def extract():
+    """
+    Read the passed file key and the MAdb security_identifier table into pyspark dataframes and return them
+
+    :return: rimes_df, security_identifier_df: tuple(DataFrame),
+        returns read file and MAdb security_identifier table in dataframes
+    """
+    logger.info("Begin extract")
+
+    rimes_file_path = f"s3://{ACCESS_POINT_ALIAS}/{file_key}"
+    logger.info("Reading df from %s", rimes_file_path)
+    rimes_df = spark.read.format("avro").option("header", "true").load(rimes_file_path)
+
+    connection_options = {
+        "url": "jdbc:postgresql://{0}:5432/{1}".format(
+            aurora_details["host"], aurora_details["database"]
+        ),
+        "user": aurora_details["user"],
+        "password": aurora_details["pass"],
+        "dbtable": "security_identifier",
+    }
+
+    logger.info(
+        "Reading df from security_identifier table in %i", aurora_details["host"]
+    )
+
+    security_identifier_dyf = glueContext.create_dynamic_frame_from_options(
+        connection_type="postgresql", connection_options=connection_options
+    )
+    security_identifier_df = security_identifier_dyf.toDF()
+
+    connection_options["dbtable"] = "security_identifier_histo"
+    security_identifier_histo_dyf = glueContext.create_dynamic_frame_from_options(
+        connection_type="postgresql", connection_options=connection_options
+    )
+    security_identifier_histo_df = security_identifier_histo_dyf.toDF()
+
+    logger.info("Extract complete")
+    return rimes_df, security_identifier_df, security_identifier_histo_df
+
+
+def find_latest_msec_id_using_histo(
+    security_identifier_histo_df: DataFrame, rimes_df_with_msec_id: DataFrame
+) -> DataFrame:
+    """
+    Uses the security histo table to figure what the latest effective dated msec id is for a given combination of identifiers
+
+    First take the security_identifier_histo_df and order by effective date to get the latest set of identifiers for a
+    given combination of cusip, sedol, isin, exchange_mic
+
+    Next, join with the RIMES df that contains duplicate msec_id records. If there is a match with the histo table,
+    use that msec_id
+
+
+    :param security_identifier_histo_df: DataFrame, DataFrame created from the security_identifier_histo table
+    :param rimes_df_with_msec_id: DataFrame, DataFrame created from the RIMES file and security_identifier join that contains duplicate msec_id records
+    :return: DataFrame, DataFrame that is joined with the security_identifier_histo table ordered by latest msec_id
+    """
+    # Find latest msec_id for associated isin, cusip, sedol group in the histo table
+    security_identifier_histo_wd = Window.partitionBy(
+        security_identifier_histo_df["cusip"],
+        security_identifier_histo_df["sedol"],
+        security_identifier_histo_df["isin"],
+        security_identifier_histo_df["exchange_mic"],
+    ).orderBy(security_identifier_histo_df["effective_date"].desc())
+    security_identifier_histo_df = security_identifier_histo_df.withColumn(
+        "row_number", F.row_number().over(security_identifier_histo_wd)
+    )
+    security_identifier_histo_df = security_identifier_histo_df.where("row_number == 1")
+    security_identifier_histo_df = security_identifier_histo_df.withColumnRenamed(
+        "msec_id", "histo_msec_id"
+    ).withColumnRenamed("exchange_mic", "exchange_mic_histo")
+
+    histo_join_condition = [
+        (
+            rimes_df_with_msec_id.exchange_mic
+            == security_identifier_histo_df.exchange_mic_histo
+        )
+        & (rimes_df_with_msec_id.msec_id == security_identifier_histo_df.histo_msec_id)
+    ]
+
+    rimes_df_with_msec_id = rimes_df_with_msec_id.join(
+        security_identifier_histo_df, on=histo_join_condition, how="left"
+    )
+
+    # Order by histo_msec_id, so if there is a match with the histo table we use latest effective_dated id
+    rimes_df_with_msec_id_wd = Window.partitionBy(
+        rimes_df_with_msec_id["cusip_db"],
+        rimes_df_with_msec_id["sedol_db"],
+        rimes_df_with_msec_id["isin_db"],
+        rimes_df_with_msec_id["exchange_mic"],
+    ).orderBy(rimes_df_with_msec_id["histo_msec_id"].desc())
+    rimes_df_with_msec_id = rimes_df_with_msec_id.withColumn(
+        "row_number", F.row_number().over(rimes_df_with_msec_id_wd)
+    )
+    rimes_df_with_msec_id = rimes_df_with_msec_id.where("row_number == 1")
+
+    return rimes_df_with_msec_id
+
+
+def transform(
+    rimes_df: DataFrame,
+    security_identifier_df: DataFrame,
+    security_identifier_histo_df: DataFrame,
+    staging_identifier: str,
+) -> DataFrame:
+    """
+    Joins the Rimes DataFrame with the Security Identifier Dataframe and renames columns to matching MAdb column names
+    Join on available security identifiers to obtain an msec id from the security_identifier table
+
+    Scenarios exist where there are is more than one msec id match, we thne use the security_histo table and match with
+    the latest effective dated identifier for the cusip/sedol/isin/exchange combination
+
+    When there is a record with no msec id match, throw an exception
+
+    :param rimes_df: DataFrame, Extracted DataFrame from Rimes file
+    :param security_identifier_df: DataFrame, Extracted DataFrame from MAdb security_identifier table
+    :param security_identifier_histo_df: Dataframe, Extracted DataFrame from MAdb security_identifier_histo table
+    :param staging_identifier: str, Rime file name to be used as a staging identifier
+    :return: transformed_rimes_df DataFrame, Dataframe with Rimes details as well as msec_id and appropriate column names
+    """
+
+    # logger.info("Begin transform")
+    rimes_df = rimes_df.select(
+        F.explode(rimes_df.records).alias("Records_Exploded"),
+    )
+    rimes_df = rimes_df.select("Records_Exploded.*")
+
+    global RECORDS_READ
+    RECORDS_READ = rimes_df.count()
+    logger.info("After unnesting, read %i records from file", RECORDS_READ)
+
+    # Special logic needed for NASDAQ exchanges, XNAS from RIMES maps to XNGS, XNMS, or XNCM
+    constituents_with_nasdaq = rimes_df.filter(rimes_df.MIC == "XNAS")
+    logger.info(
+        "Found %i records linked to XNAS exchange", constituents_with_nasdaq.count()
+    )
+    rimes_df_without_nasdaq = rimes_df.filter(rimes_df.MIC != "XNAS")
+
+    rimes_df = (
+        rimes_df.withColumnRenamed("SEDOL", "SEDOL_FILE")
+        .withColumnRenamed("CUSIP", "CUSIP_FILE")
+        .withColumnRenamed("ISIN", "ISIN_FILE")
+        .withColumnRenamed("MIC", "MIC_FILE")
+        .withColumnRenamed("SECURITY", "SECURITY_FILE")
+    )
+
+    # Rename columns to avoid ambiguity with source file col names
+    security_identifier_df = (
+        security_identifier_df.withColumnRenamed("cusip", "cusip_db")
+        .withColumnRenamed("sedol", "sedol_db")
+        .withColumnRenamed("isin", "isin_db")
+        .withColumnRenamed("bbg_ticker", "bbg_ticker_db")
+    )
+
+    generic_join_condition = [
+        (rimes_df_without_nasdaq.MIC == security_identifier_df.exchange_mic)
+        & (
+            (rimes_df_without_nasdaq.SEDOL == security_identifier_df.sedol_db)
+            | (rimes_df_without_nasdaq.CUSIP == security_identifier_df.cusip_db)
+            | (rimes_df_without_nasdaq.ISIN == security_identifier_df.isin_db)
+        )
+    ]
+    rimes_df_with_msec_id = rimes_df_without_nasdaq.join(
+        security_identifier_df, how="inner", on=generic_join_condition
+    )
+
+    security_identifier_df.createOrReplaceTempView("security_identifier")
+    constituents_with_nasdaq.createOrReplaceTempView("nasdaq_index_constituents")
+
+    nasdaq_query = read_sql_file_to_var(sql_file="nasdaq_join.sql")
+    nasdaq_df = spark.sql(nasdaq_query)
+    rimes_df_with_msec_id = rimes_df_with_msec_id.unionAll(nasdaq_df)
+
+    count_after_sec_identifier_join = rimes_df_with_msec_id.count()
+    logger.info("%i after join", count_after_sec_identifier_join)
+
+    if RECORDS_READ > count_after_sec_identifier_join:
+        generic_join_condition = [
+            (rimes_df_with_msec_id.sedol_db == rimes_df.SEDOL_FILE)
+            | (rimes_df_with_msec_id.cusip_db == rimes_df.CUSIP_FILE)
+            | (rimes_df_with_msec_id.isin_db == rimes_df.ISIN_FILE)
+        ]
+
+        # Use anti joins to find what wasn't successfully transformed
+        rimes_missing_msec_id = rimes_df.join(
+            rimes_df_with_msec_id, how="leftanti", on=generic_join_condition
+        )
+
+        rimes_missing_msec_id = rimes_missing_msec_id.select(
+            "SEDOL_FILE", "CUSIP_FILE", "ISIN_FILE", "MIC_FILE"
+        )
+        logger.error("Missing msec id for the following records")
+        logger.error(get_show_string(rimes_missing_msec_id))
+        raise ValueError("MSEC ID MISSING")
+    if RECORDS_READ < count_after_sec_identifier_join:
+        logger.error("Duplicate MIC, SEDOL, CUSIP, ISIN combination found")
+        dups_df = (
+            rimes_df_with_msec_id.groupby(["cusip_db", "sedol_db", "isin_db"])
+            .count()
+            .select(
+                "cusip_db",
+                "sedol_db",
+                "isin_db",
+                F.col("count").alias("row_count"),
+            )
+            .filter(F.col("row_count") > 1)
+        )
+        logger.error(get_show_string(dups_df))
+
+        logger.error("Trying to join with security_histo table to get latest msec_id")
+
+        rimes_df_with_msec_id = find_latest_msec_id_using_histo(
+            security_identifier_histo_df, rimes_df_with_msec_id
+        )
+        count_after_histo_join = rimes_df_with_msec_id.count()
+
+        logger.error("Count after histo join %i", count_after_histo_join)
+        # If histo join doesn't reduce records raise error
+        if RECORDS_READ != count_after_histo_join:
+            dups_df = (
+                rimes_df_with_msec_id.groupby(["cusip_db", "sedol_db", "isin_db"])
+                .count()
+                .select(
+                    "cusip_db",
+                    "sedol_db",
+                    "isin_db",
+                    F.col("count").alias("row_count"),
+                )
+                .filter(F.col("row_count") > 1)
+            )
+
+            logger.error(get_show_string(dups_df))
+            raise ValueError("Duplicate SEDOL, CUSIP, ISIN found")
+
+    rimes_df_with_msec_id = rimes_df_with_msec_id.select(
+        "EffectiveDate",
+        "MIC",
+        "msec_id",
+        "ProviderWeight",
+        "WT",
+        "INDEX_ID",
+        "NumOfShares",
+        "Universe",
+    )
+
+    rimes_df_with_msec_id.createOrReplaceTempView("rimes_df_with_msec_id")
+    transformation_query = read_sql_file_to_var(
+        sql_file="index_constituent_creation.sql", staging_identifier=staging_identifier
+    )
+    logger.info("Running %s on DataFrame", transformation_query)
+    transformed_rimes_df = spark.sql(transformation_query)
+
+    logger.info("Transform complete")
+    return transformed_rimes_df
+
+
+def load(rimes_df: DataFrame, staging_identifier: str) -> None:
+    """
+    Stages the transformed Rimes DataFrame and then performs an upsert to the master table
+
+    :param rimes_df: DataFrame, Transformed Rimes DataFrame to load into DB
+    :param staging_identifier: str, Identifier used to delete and upsert from index_constituent_staging table
+    :return: None
+    """
+    cursor = pg.cursor()
+
+    exc = None
+    try:
+        logger.info("RUNNING INDEX CONSTITUENT STAGING INSERT")
+        written_records_dyf = write_to_aurora(
+            db_table="index_constituent_staging",
+            df=rimes_df,
+        )
+
+        global RECORDS_WRITTEN
+        RECORDS_WRITTEN = written_records_dyf.count()
+
+        index_constituents_upsert_query = read_sql_file_to_var(
+            sql_file="index_constituent_upsert.sql",
+            staging_identifier=staging_identifier,
+        )
+        logger.info("Running %s", index_constituents_upsert_query)
+
+        cursor.execute("START TRANSACTION")
+        logger.info("RUNNING INDEX CONSTITUENTS UPSERT")
+        cursor.execute(index_constituents_upsert_query)
+        pg.commit()
+
+    except Exception as e:
+        cursor.execute("ROLLBACK;")
+        exc = e
+
+    finally:
+        cursor.execute("START TRANSACTION")
+        delete_from_staging(
+            staging_table="index_constituent_staging",
+            staging_identifier=staging_identifier,
+        )
+
+    if exc:
+        logger.error(exc)
+        raise exc
+
+
+def audit() -> None:
+    """
+    Creates an entry in the etl_audit table with read/write record totals, time it took to run, file name,
+        and what index was loaded
+    """
+
+    job_end_time = datetime.now()
+    # File Key Example: "s3://vgi-gis-eng-us-east-1-maa-gifs-madb-staging/Sample_DATA/Rimes_Index/FTSEUK_PORTFOLIO_ALL_UKXPRGBP0_NDO_20210707.AVRO"
+
+    file_name = file_key.split("/")[-1]
+    # FTSEUK_PORTFOLIO_ALL_UKXPRGBP0_NDO_20210707.AVRO
+
+    data_component = file_name[:-14]
+    # FTSEUK_PORTFOLIO_ALL_UKXPRGBP0_NDO
+
+    audit_dict = {
+        "job_start_time": job_start_time,
+        "job_end_time": job_end_time,
+        "records_read": RECORDS_READ,
+        "records_written": RECORDS_WRITTEN,
+        "data_type": "RIMES_INDEX_CONSTITUENTS",
+        "data_component": data_component,
+        "file_key": file_key,
+    }
+
+    audit_query = return_audit_query(audit_dict)
+    logger.info("Inserting audit details for this job run...")
+    cursor = pg.cursor()
+    logger.info(audit_query)
+    cursor.execute(audit_query)
+    pg.commit()
+    logger.info("Audit complete")
+
+
+def check_weights_sum_to_100(transformed_rimes_df: DataFrame) -> None:
+    """
+    Simple check to make sure weights of index constituents add to 100 before loading the data
+    :param transformed_rimes_df: DataFrame, DataFrame that has gone through transformation and is ready to load
+    """
+    logger.info("Checking if weights sum to 100")
+    publication_type = transformed_rimes_df.select("publication_type").first()[0]
+
+    provider_weight_sum = transformed_rimes_df.select(F.sum("provider_weight")).first()[
+        0
+    ]
+    weight_sum = transformed_rimes_df.select(F.sum("weight")).first()[0]
+
+    if publication_type == "EOD":
+        if not math.isclose(1, provider_weight_sum, abs_tol=0.000001):
+            raise ValueError(
+                "Provider weight total for DataFrame (%f) is not equal to one"
+                % provider_weight_sum
+            )
+
+    if publication_type == "SOD":
+        if not math.isclose(1, provider_weight_sum, abs_tol=0.000001):
+            raise ValueError(
+                "Provider weight total for DataFrame (%f) is not equal to one"
+                % provider_weight_sum
+            )
+
+        if not math.isclose(1, weight_sum, abs_tol=0.000001):
+            raise ValueError(
+                "Provider weight total for DataFrame (%f) is not equal to one"
+                % weight_sum
+            )
+
+
+def run_data_quality_checks(transformed_rimes_df: DataFrame) -> None:
+    """
+    Runs various data quality checks and raises value errors for failures
+
+    :param transformed_rimes_df: DataFrame, DataFrame that has gone through transformation and is ready to load
+    """
+    logger.info("Running Data Quality Checks")
+    check_weights_sum_to_100(transformed_rimes_df)
+
+
+def main():
+    delete_from_staging(
+        staging_table="index_constituent_staging",
+        staging_identifier=file_key,
+    )
+
+    rimes_df, security_identifier_df, security_identifier_histo_df = extract()
+    transformed_rimes_df = transform(
+        rimes_df=rimes_df,
+        security_identifier_df=security_identifier_df,
+        security_identifier_histo_df=security_identifier_histo_df,
+        staging_identifier=file_key,
+    )
+
+    run_data_quality_checks(transformed_rimes_df=transformed_rimes_df)
+    load(rimes_df=transformed_rimes_df, staging_identifier=file_key)
+
+    audit()
+
+
+# entry point for PySpark ETL application
+if __name__ == "__main__":
+    RECORDS_READ = 0
+    RECORDS_WRITTEN = 0
+    job_start_time = datetime.now()
+    sc = SparkContext()
+    glueContext = GlueContext(sc)
+    spark = glueContext.spark_session
+
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    handler = logging.StreamHandler(stream=sys.stdout)
+    handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
+    session = boto3.session.Session()
+    region = session.region_name
+    sm_client = boto3.client("secretsmanager")
+
+    args = getResolvedOptions(sys.argv, ["env", "file_key", "bucket_name", "version"])
+    env = args["env"]
+    logger.info("Found ENV to be: %s", env)
+
+    MADB_SCRIPT_LOCATION = "vgi-gis-{0}-us-east-1-maa-gifs-madb-staging/glue-etl/rimes-transformation-job/sql".format(
+        env
+    )
+
+    bucket_name = args["bucket_name"]
+    logger.info("Found bucket_name from event to be: %s", bucket_name)
+
+    file_key = args["file_key"]
+    logger.info("Found file_key from event to be: %s", file_key)
+
+    version = args["version"]
+    logger.info("Found version from event to be: %s", version)
+
+    ACCESS_POINT_ALIAS = ""
+    if env == "eng":
+        ACCESS_POINT_ALIAS = (
+            "vgi-gis-eng-rimes-in-tomjg4qeadtqthoes6udqzci53hueuse1b-s3alias"
+        )
+    elif env == "test":
+        ACCESS_POINT_ALIAS = (
+            "vgi-gis-test-rimes-i-yoqduomgebiyz6yfoypi3ys163gryuse1b-s3alias"
+        )
+    elif env == "prod":
+        ACCESS_POINT_ALIAS = (
+            "vgi-gis-prod-rimes-i-gnm3f4hk53bx3z8gsxxpdp1uyxhkhuse1b-s3alias"
+        )
+    logger.info("Choosing access point alias %s", ACCESS_POINT_ALIAS)
+
+    aurora_details = retrieve_aurora_details(sm_client, region, env)
+    pg = return_pg_connection()
+
+    main()
