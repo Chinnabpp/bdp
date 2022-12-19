@@ -1,3 +1,11 @@
-  Port ID	        Fund Name	                  Net Cash Flow	  Subscriptions	  Redemptions	    Exchanges In	  Exchanges Out	  Conversions In	  Conversions Out	  Reinvested Income	  Reinvested Short-Term Capital Gains	  Reinvested Long-Term Capital Gains	  Date	    all_share_port_id
-    2	      Balanced Index Fund Inv	            55693.63	     41298.55	      -16947.94	      31343.02	        0	                0	                  0	              0	                          0	                                        0	                  3/17/2022	    9951
-    6	       Value Index Fund Inv	              167743.3	      155400.62	       -670.28	     14666.06	      -1653.1	              0	                0	              0	                          0	                                          0	                3/17/2022	     9957
+  Port ID,Fund Name,Net Cash Flow,Subscriptions,Redemptions,Exchanges In,Exchanges Out,Conversions In,Conversions Out,Reinvested Income,Reinvested Short-Term Capital Gains,Reinvested Long-Term Capital Gains,Date,all_share_port_id
+0002,Balanced Index Fund Inv,55693.63,41298.55,-16947.94,31343.02,0.0,0.0,0.0,0.0,0.0,0.0,2022-03-17,9951
+0006,Value Index Fund Inv,167743.3,155400.62,-670.28,14666.06,-1653.1,0.0,0.0,0.0,0.0,0.0,2022-03-17,9957
+0009,Growth Index Fund Inv,904464.24,955957.31,-1798.16,4585.81,-54280.72,0.0,0.0,0.0,0.0,0.0,2022-03-17,9954
+0011,Treasury Money Market,-80797533.8,46058724.42,-133233858.57,16128236.92,-9750636.57,0.0,0.0,0.0,0.0,0.0,2022-03-17,A005
+0014,NJ LT Tax-Exempt Investor,-27026.82,98059.49,-123110.7,7339.6,-1500.0,0.0,-7815.21,0.0,0.0,0.0,2022-03-17,9800
+0021,Wellington Fund Inv,-194655.5,5410817.34,-3205133.37,447811.67,-1140975.76,25881.52,-1733056.9,0.0,0.0,0.0,2022-03-17,9801
+0022,Windsor Fund Investor,-302410.2,470218.28,-705462.8,495707.4,-139395.98,0.0,-423477.1,0.0,0.0,0.0,2022-03-17,9810
+0023,U.S. Growth Fund Investor,1533661.06,3479443.27,-2286767.75,769959.76,-428306.77,10510.79,-11178.24,0.0,0.0,0.0,2022-03-17,9996
+0024,Explorer Fund Investor,416394.32,786995.45,-555718.84,243068.08,-57950.37,0.0,0.0,0.0,0.0,0.0,2022-03-17,9811
+0027,Wellesley Income Fund Inv,-2554269.24,4355295.32,-6232577.66,505962.87,-333348.97,39355.06,-888955.86,0.0,0.0,0.0,2022-03-17,9803
