@@ -1,17 +1,5 @@
-1) Please write test cases for this glue job pythin script.
-2) i have attached sample data file that this job uses and sample of other glue job python script and test script aswell
-3) file name starts with sample are from existing glue jobs where test cases are already there.
+Requirement is to write test cases for data_ingestion.py, dq_check.py, splunk_metric_count.py scripts.  (For data_freshness.py script test cases are already written and attached in here)
 
-FYI: sample data is in data.csv file that you can use 
+Basiscally we have to write a test case scripts ne for each of the python script. Sample test script is also attached, we have to check the logic and have to write the test cases accordinglt. 
 
-
-
-What Glue jon does:
-
-Lambda will trigger this glue job, First it will check for date, if date is there in arguments it will take that date and run otherwise it will ge previousbusiness day date and start running
-Once we get date, it will go to extract method, we read file file from s3 and store in a spakr df, converthing that to pandas df. Also we read database table where we get id column thos also we store in df
-After that itwill go to traansform method, once we get both df's we are joining those df's bsed on id's, if id's match then we are taking entire row
-After that we are adding 3 column's to df, we are renaming as per ddatabse table and also changing data type and creating final df
-After that we are dropping duplicate records from final df, converthing this from pandas df to spark df
-After we are going to load function, Loading this df to database staging table, once staging tableload is successfull it will use upsert sql statement and copy data from staging to master database table. Once load is successfull it will delete data in db saging table
-After this it will go to audit menthos and execute insert qquery with records items atht are mentioned in this glue job.
+Please go through code once and let me know if you have any questions. Thanks!
