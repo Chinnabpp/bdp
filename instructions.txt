@@ -1,5 +1,5 @@
-Requirement is to write test cases for data_ingestion.py, dq_check.py, splunk_metric_count.py scripts.  (For data_freshness.py script test cases are already written and attached in here)
+Requirement is to write test cases for data_ingestion.py, dq_check.py, splunk_metric_count.py scripts.  (For data_freshness.py script test cases are already written and attached)
 
-Basiscally we have to write a test case scripts ne for each of the python script. Sample test script is also attached, we have to check the logic and have to write the test cases accordinglt. 
+Basiscally we have to write a test case scripts one for each of the python script. Sample test script is also attached under test folder, we have to check the logic and have to write the test cases accordingly. 
 
 Please go through code once and let me know if you have any questions. Thanks!
