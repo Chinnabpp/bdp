@@ -1,0 +1,31 @@
+{
+    "defaults":{
+        "action":"poll",
+        "jarPath":"/emr/app/dependencies/notification-client.jar",
+        "messageType":"status",
+        "subject":"None",
+        "app_prefix":"ARE",
+        "pipeline":"Retail"
+        },
+    "retail_entmaster1":{
+        "app_prefix":"ARE",
+        "pipeline": "Retail_Enterprise_Ingestion",
+        "db": "retail_entmaster1"
+        },
+    "platform_entmaster1":{
+        "app_prefix":"CI1",
+        "pipeline": "Commingled_Enterprise_Ingestion",
+        "db": "platform_entmaster1"
+        },
+    "ta_acct":{
+        "retail_entmaster1":[
+				"TC_VGI_INT_INS",
+				"TACCT"
+                ],
+        "platform_entmaster1":[
+                "TSAG",
+				"TCIN015"
+                ]
+        }
+
+}
