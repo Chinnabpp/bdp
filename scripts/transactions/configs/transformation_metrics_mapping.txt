@@ -1,0 +1,3 @@
+source_table|target_table|source_database|target_database|target_folder|batch_type
+act_ta_act|tbalances_by_account|OGC_Dna_Legalcompliance|csdo_master|Accounts|account
+txn_ta|ttransactions_by_account|OGC_Dna_Legalcompliance|csdo_master|Transactions|transaction
